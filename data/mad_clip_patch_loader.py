@@ -109,7 +109,6 @@ class VideoQADataset(Dataset):
         qid = str(cur_sample['qid'])
 
         video_f = self.get_video_feature(vid_id)
-        video_f = torch.ones_like(video_f)
         
         vid_duration = video_f.shape[0]
         
