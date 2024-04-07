@@ -1,0 +1,25 @@
+mkdir -p ./save_models/star/mist_star_conv/
+python main_star.py --checkpoint_dir=star \
+	--dataset_dir='../mist/mist_data/datasets/' \
+	--feature_dir='../mist/mist_data/feats/'  \
+	--dataset=star \
+	--mc=4 \
+	--bnum=5 \
+	--epochs=300 \
+	--lr=0.00005 \
+	--qmax_words=30 \
+	--amax_words=38 \
+	--max_feats=32 \
+	--batch_size=128 \
+	--batch_size_val=128 \
+	--num_thread_reader=8 \
+	--mlm_prob=0 \
+	--n_layers=2 \
+	--embd_dim=512 \
+	--ff_dim=1024 \
+	--feature_dim=512 \
+	--dropout=0.3 \
+	--seed=300 \
+	--freq_display=30 \
+	--use-conv=1 \
+	--save_dir='./save_models/star/mist_star_conv/' \
