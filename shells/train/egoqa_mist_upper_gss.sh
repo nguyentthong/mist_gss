@@ -1,6 +1,7 @@
-python main_nextqa.py --checkpoint_dir=nextqa \
+mkdir -p ./save_models/egoqa/mist_egoqa_upper_gss/
+python main_egoqa.py --checkpoint_dir=egoqa \
 	--feature_dir='../mist/mist_data/feats/'  \
-	--dataset=nextqa \
+	--dataset=egoqa \
 	--mc=5 \
 	--bnum=5 \
 	--epochs=30 \
@@ -17,7 +18,7 @@ python main_nextqa.py --checkpoint_dir=nextqa \
 	--ff_dim=1024 \
 	--dropout=0.3 \
 	--seed=400 \
-	--save_dir='./save_models/nextqa/mist_nextqa_attn/' \
-	--test 1 \
-	--use-attn 1 \
-	--pretrain_path ./save_models/nextqa/mist_nextqa_attn/best_model.pth
+	--topk-selector-dataloading 0 \
+	--num-frames-in-feature-file 512 \
+	--upper-gss=1 \
+	--save_dir='./save_models/egoqa/mist_egoqa_upper_gss/'

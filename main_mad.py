@@ -62,7 +62,8 @@ def main(args):
         num_frames_in_feature_file=args.num_frames_in_feature_file,
         use_gss=args.use_gss,
         use_attn=args.use_attn,
-        use_conv=args.use_conv
+        use_conv=args.use_conv,
+        upper_gss=args.upper_gss
     )
     model.cuda()
     # from IPython.core.debugger import Pdb

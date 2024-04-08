@@ -610,8 +610,28 @@ class Selector(nn.Module):
         return selected_segs
 
 
+class GatedSSM(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.n_layers = 2
+        layer = GSS(
+            dim=config.hidden_size,
+            dim_expansion_factor=4,
+            dss_kernel_N=512,
+            dss_kernel_H=256
+        )
+        self.layer = nn.ModuleList(
+            [copy.deepcopy(layer) for _ in range(self.n_layers)]
+        )
+
+    def forward(self, x):
+        for layer in self.layer:
+            x = layer(x)
+        return x
+    
+
 class ISTA(nn.Module):
-    def __init__(self, feature_dim, word_dim, Q, N, d_model, dropout, d_ff, h, topk=6, topj=12, use_gss=False, num_frames_in_feature_file=128):
+    def __init__(self, feature_dim, word_dim, Q, N, d_model, dropout, d_ff, h, topk=6, topj=12, use_gss=False, num_frames_in_feature_file=128, upper_gss=0):
         super(ISTA, self).__init__()
         self.topk = topk
         self.numc = 32
@@ -628,7 +648,12 @@ class ISTA(nn.Module):
             intermediate_size=d_ff,
             num_attention_heads=h,
         )
-        self.mmt = Transformer(self.config)
+
+        self.upper_gss = upper_gss
+        if self.upper_gss:
+            self.mmt = GatedSSM(self.config)
+        else:
+            self.mmt = Transformer(self.config)
         self.seg_selector = Selector(topk=self.topk)
         self.reg_selector = Selector(topk=self.topj)
 
@@ -704,12 +729,13 @@ class ISTA(nn.Module):
         mask = torch.cat([video_mask], dim=1)
         vq_cat = self.position(vq_cat)
 
-        attended_vq, video_attention = self.mmt(x=vq_cat, attn_mask=mask, output_attentions=True)
-        video_attention = video_attention[-1]
-        video_attention = torch.max(video_attention, 1).values
+        if self.upper_gss:
+            attended_vq = self.mmt(vq_cat)
+        else:
+            attended_vq, _ = self.mmt(x=vq_cat, attn_mask=mask, output_attentions=True)
         out_seg_feat = attended_vq[:, :seg_len]
 
-        return attended_vq, out_seg_feat, video_attention
+        return attended_vq, out_seg_feat, None
 
 
 class MIST_VideoQA(nn.Module):
@@ -740,6 +766,7 @@ class MIST_VideoQA(nn.Module):
             use_gss=0,
             use_attn=0,
             use_conv=0,
+            upper_gss=0
     ):
         super(MIST_VideoQA, self).__init__()
         self.baseline = baseline
@@ -784,8 +811,9 @@ class MIST_VideoQA(nn.Module):
         self.norm_question = nn.LayerNorm(d_model, eps=1e-12)
         self.num_frames_in_feature_file = num_frames_in_feature_file
 
+        self.upper_gss = upper_gss
         self.ISTA = [ISTA(feature_dim=feature_dim, word_dim=word_dim, Q=Q, N=N,
-                          d_model=d_model, dropout=dropout, d_ff=d_ff, h=h, topk=self.topk, topj=self.topj, num_frames_in_feature_file=num_frames_in_feature_file)]
+                          d_model=d_model, dropout=dropout, d_ff=d_ff, h=h, topk=self.topk, topj=self.topj, num_frames_in_feature_file=num_frames_in_feature_file, upper_gss=self.upper_gss)]
         for _ in range(self.num_ista - 1):
             self.ISTA.append(
                 ISTA(feature_dim=d_model, word_dim=d_model, Q=Q, N=N,

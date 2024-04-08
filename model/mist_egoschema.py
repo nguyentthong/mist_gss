@@ -26,6 +26,7 @@ from transformers import DistilBertTokenizer, DistilBertModel, BertTokenizer, Be
 from util import get_mask
 from gated_state_spaces_pytorch import GSS
 
+
 class AModel(nn.Module):
     """
     Answer embedding module
@@ -608,31 +609,11 @@ class Selector(nn.Module):
         return selected_segs
 
 
-class GatedSSM(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.n_layers = 2
-        layer = GSS(
-            dim=config.hidden_size,
-            dim_expansion_factor=4,
-            dss_kernel_N=512,
-            dss_kernel_H=256
-        )
-        self.layer = nn.ModuleList(
-            [copy.deepcopy(layer) for _ in range(self.n_layers)]
-        )
-
-    def forward(self, x):
-        for layer in self.layer:
-            x = layer(x)
-        return x
-    
-
 class ISTA(nn.Module):
-    def __init__(self, feature_dim, word_dim, Q, N, d_model, dropout, d_ff, h, topk=6, topj=12, num_frames_in_feature_file=32, upper_gss=0):
+    def __init__(self, feature_dim, word_dim, Q, N, d_model, dropout, d_ff, h, topk=6, topj=12):
         super(ISTA, self).__init__()
         self.topk = topk
-        self.numc = num_frames_in_feature_file
+        self.numc = 32
         self.numf = int(32 / self.numc)
         self.topj = topj  # max self.numr is 16
         T = self.numc + (self.topj) * self.topk * self.numf
@@ -646,12 +627,7 @@ class ISTA(nn.Module):
             intermediate_size=d_ff,
             num_attention_heads=h,
         )
-
-        self.upper_gss = upper_gss
-        if self.upper_gss:
-            self.mmt = GatedSSM(self.config)
-        else:
-            self.mmt = Transformer(self.config)
+        self.mmt = Transformer(self.config)
         self.seg_selector = Selector(topk=self.topk)
         self.reg_selector = Selector(topk=self.topj)
 
@@ -725,10 +701,7 @@ class ISTA(nn.Module):
         video_mask = torch.ones([bsize, seg_len + patch_feat.size(1)], dtype=torch.long, device=patch_feat.device)
         mask = torch.cat([video_mask], dim=1)
         vq_cat = self.position(vq_cat)
-        if self.upper_gss:
-            attended_vq = self.mmt(x=vq_cat)
-        else:
-            attended_vq = self.mmt(x=vq_cat, attn_mask=mask)[0]
+        attended_vq = self.mmt(x=vq_cat, attn_mask=mask)[0]
 
         out_seg_feat = attended_vq[:, :seg_len]
 
@@ -759,18 +732,16 @@ class MIST_VideoQA(nn.Module):
             CM_PT=False,
             dataset="",
             clip_dim=512,
-            num_frames_in_feature_file=32,
-            use_gss=0,
             use_attn=0,
-            use_conv=0,
-            upper_gss=0
+            use_gss=0,
+            use_conv=0
     ):
         super(MIST_VideoQA, self).__init__()
         self.baseline = baseline
         self.Q = Q
         self.T = T
         self.n_negs = n_negs
-        self.numc = num_frames_in_feature_file
+        self.numc = 32
         self.numf = 1
         self.num_ista = 1
         d_pos = 128
@@ -803,11 +774,9 @@ class MIST_VideoQA(nn.Module):
         # question post bert modules
         self.linear_question = nn.Linear(word_dim, d_model)
         self.norm_question = nn.LayerNorm(d_model, eps=1e-12)
-        self.num_frames_in_feature_file = num_frames_in_feature_file
 
-        self.upper_gss = upper_gss
         self.ISTA = [ISTA(feature_dim=feature_dim, word_dim=word_dim, Q=Q, N=N,
-                          d_model=d_model, dropout=dropout, d_ff=d_ff, h=h, topk=self.topk, topj=self.topj, num_frames_in_feature_file=self.num_frames_in_feature_file, upper_gss=self.upper_gss)]
+                          d_model=d_model, dropout=dropout, d_ff=d_ff, h=h, topk=self.topk, topj=self.topj)]
         for _ in range(self.num_ista - 1):
             self.ISTA.append(
                 ISTA(feature_dim=d_model, word_dim=d_model, Q=Q, N=N,
@@ -826,17 +795,21 @@ class MIST_VideoQA(nn.Module):
         self.use_gss = use_gss
         self.use_attn = use_attn
         self.use_conv = use_conv
+
         if self.use_gss:
             self.gss = GSS(
                 dim=d_model,
-                dim_expansion_factor=1,
-                dss_kernel_N=128,
-                dss_kernel_H=64
+                dim_expansion_factor=4,
+                dss_kernel_N=512,
+                dss_kernel_H=256
             )
         elif self.use_attn:
-            self.attn = MultiHeadSelfAttention(self.config)
+            self.attn = MultiHeadSelfAttention(
+                self.config
+            )
         elif self.use_conv:
             self.conv = nn.Conv1d(d_model, d_model, kernel_size=3, padding=1)
+
 
     def _init_weights(self, module):
         """Initialize the weights."""
@@ -883,23 +856,34 @@ class MIST_VideoQA(nn.Module):
             )
         return question
 
-    def get_vqa_embedding_simplify(self, video_f, language=None, language_lens=None):
+    def get_vqa_embedding_simplify(self, video, language=None, language_lens=None):
+        video_o, video_f = video[0], video[1]
+        # video_f = self.linear_video(video_f)
+        # video_f = gelu(video_f)
+        # video_f = self.norm_video(video_f)  # (bs, numc, numf, dmodel)
+
+        bsize, numc, numf, numr, fdim = video_o.size()
         if language is not None:
             bsize_lan, len_lan, dim_lan = language.size()
             ans_n = bsize_lan // bsize
 
-        bsize, numf, fdim = video_f.size()
-        short_mask = get_mask(torch.tensor([1] * bsize * numf, dtype=torch.long), 1).cuda()
-        X = self.ttrans(video_f, short_mask)[0]
+        X = self.encode_vid(video_o)
+        X = X.view(bsize, numc, numf, numr, -1).permute(0, 1, 3, 2, 4)
+
+        short_mask = get_mask(torch.tensor([numf] * bsize * numc * numr, dtype=torch.long), numf).cuda()
+        X = self.ttrans(X.reshape(bsize * numc * numr, numf, -1), short_mask)[0]
 
         if self.use_gss:
-            X = self.gss(X)
+            X = self.gss(X.reshape(bsize, numc * numf * numr, -1))
         elif self.use_attn:
-            X = self.attn(X, X, X, short_mask)[0]
+            input_X = X.reshape(bsize, numc * numf * numr, -1)
+            input_mask = short_mask.reshape(bsize, numc * numf * numr, -1)
+            X = self.attn(input_X, input_X, input_X, input_mask)[0]
         elif self.use_conv:
-            X = self.conv(X)
+            X = self.conv(X.reshape(bsize, numc * numf * numr, -1))
+        X = X.reshape(bsize, numc, numf, numr, -1)
         try:
-            video = X.view(bsize, numf, 1, 1, -1)
+            video = torch.cat([X, video_f.view(bsize, numc, numf, 1, -1)], dim=-2)
         except:
             from IPython.core.debugger import Pdb
             dbg = Pdb()
@@ -931,10 +915,10 @@ class MIST_VideoQA(nn.Module):
             max_seq_len=0,
             mode="vqa",
     ):
-        video_f = video
-        bsize = video.shape[0]
+        video_o, video_f = video
+        bsize, _, numr, fdim = video_o.size()
         numc, numf = self.numc, self.numf
-        # video_o = video_o.view(bsize, numc, numf, numr, fdim)
+        video_o = video_o.view(bsize, numc, numf, numr, fdim)
 
         answer_g, answer_w = (
             self.get_answer_embedding(answer)
@@ -943,7 +927,7 @@ class MIST_VideoQA(nn.Module):
         )
 
         # video embedding
-        video_proj = self.get_vqa_embedding_simplify(video_f)  # [bs, numc, numf, numr, dim]
+        video_proj = self.get_vqa_embedding_simplify((video_o, video_f))  # [bs, numc, numf, numr, dim]
         bs, n_clip, n_frame, n_object, dim = video_proj.shape
 
         # question embedding

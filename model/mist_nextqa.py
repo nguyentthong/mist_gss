@@ -304,6 +304,26 @@ class TransformerBlock(nn.Module):
         return output
 
 
+class GatedSSM(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.n_layers = 2
+        layer = GSS(
+            dim=config.hidden_size,
+            dim_expansion_factor=4,
+            dss_kernel_N=512,
+            dss_kernel_H=256
+        )
+        self.layer = nn.ModuleList(
+            [copy.deepcopy(layer) for _ in range(self.n_layers)]
+        )
+
+    def forward(self, x):
+        for layer in self.layer:
+            x = layer(x)
+        return x
+
+
 class Transformer(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -610,7 +630,7 @@ class Selector(nn.Module):
 
 
 class ISTA(nn.Module):
-    def __init__(self, feature_dim, word_dim, Q, N, d_model, dropout, d_ff, h, topk=6, topj=12):
+    def __init__(self, feature_dim, word_dim, Q, N, d_model, dropout, d_ff, h, topk=6, topj=12, upper_gss=0):
         super(ISTA, self).__init__()
         self.topk = topk
         self.numc = 32
@@ -627,7 +647,13 @@ class ISTA(nn.Module):
             intermediate_size=d_ff,
             num_attention_heads=h,
         )
-        self.mmt = Transformer(self.config)
+
+        self.upper_gss = upper_gss
+        if self.upper_gss:
+            self.mmt = GatedSSM(self.config)
+        else:
+            self.mmt = Transformer(self.config)
+
         self.seg_selector = Selector(topk=self.topk)
         self.reg_selector = Selector(topk=self.topj)
 
@@ -701,7 +727,11 @@ class ISTA(nn.Module):
         video_mask = torch.ones([bsize, seg_len + patch_feat.size(1)], dtype=torch.long, device=patch_feat.device)
         mask = torch.cat([video_mask], dim=1)
         vq_cat = self.position(vq_cat)
-        attended_vq = self.mmt(x=vq_cat, attn_mask=mask)[0]
+
+        if self.upper_gss:
+            attended_vq = self.mmt(x=vq_cat)
+        else:    
+            attended_vq = self.mmt(x=vq_cat, attn_mask=mask)[0]
 
         out_seg_feat = attended_vq[:, :seg_len]
 
@@ -734,7 +764,8 @@ class MIST_VideoQA(nn.Module):
             clip_dim=512,
             use_gss=0,
             use_attn=0,
-            use_conv=0
+            use_conv=0,
+            upper_gss=0
     ):
         super(MIST_VideoQA, self).__init__()
         self.baseline = baseline
@@ -775,8 +806,13 @@ class MIST_VideoQA(nn.Module):
         self.linear_question = nn.Linear(word_dim, d_model)
         self.norm_question = nn.LayerNorm(d_model, eps=1e-12)
 
+        self.use_gss = use_gss
+        self.use_attn = use_attn
+        self.use_conv = use_conv
+        self.upper_gss = upper_gss
+
         self.ISTA = [ISTA(feature_dim=feature_dim, word_dim=word_dim, Q=Q, N=N,
-                          d_model=d_model, dropout=dropout, d_ff=d_ff, h=h, topk=self.topk, topj=self.topj)]
+                          d_model=d_model, dropout=dropout, d_ff=d_ff, h=h, topk=self.topk, topj=self.topj, upper_gss=self.upper_gss)]
         for _ in range(self.num_ista - 1):
             self.ISTA.append(
                 ISTA(feature_dim=d_model, word_dim=d_model, Q=Q, N=N,
@@ -791,10 +827,6 @@ class MIST_VideoQA(nn.Module):
         self.amodel = AModel(bert_tokenizer, out_dim=d_model)
         self.clip, _ = clip.load("ViT-B/32")
         self.bert = Bert(bert_tokenizer)
-
-        self.use_gss = use_gss
-        self.use_attn = use_attn
-        self.use_conv = use_conv
 
         if self.use_gss:
             self.gss = GSS(

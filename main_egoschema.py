@@ -9,11 +9,10 @@ import logging
 import h5py
 from transformers import get_cosine_schedule_with_warmup, BertTokenizer
 from args import get_args
-from model.mist_egoqa import MIST_VideoQA
+from model.mist_egoschema import MIST_VideoQA
 from util import compute_a2v, save_to
-from train.train_egoqa import train, eval
-from data.egoqa_clip_patch_loader import get_videoqa_loaders
-from tqdm import trange
+from train.train_egoschema import train, eval
+from data.egoschema_clip_patch_loader import get_videoqa_loaders
 
 
 def main(args):
@@ -59,11 +58,9 @@ def main(args):
         bnum=args.bnum,
         # CM_PT=args.CM_PT,
         dataset=args.dataset,
-        num_frames_in_feature_file=args.num_frames_in_feature_file,
         use_gss=args.use_gss,
-        use_attn=args.use_attn,
         use_conv=args.use_conv,
-        upper_gss=args.upper_gss
+        use_attn=args.use_attn
     )
     model.cuda()
     # from IPython.core.debugger import Pdb
@@ -123,7 +120,6 @@ def main(args):
             save_to(save_path, results)
         best_val_acc = 0 if args.pretrain_path == "" else val_acc
         best_epoch = 0
-
         for epoch in range(args.epochs):
             train(model, train_loader, a2v, optimizer, criterion, scheduler, epoch, args, bert_tokenizer)
             val_acc, results = eval(model, val_loader, a2v, args, test=False)

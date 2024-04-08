@@ -1,6 +1,6 @@
-python main_nextqa.py --checkpoint_dir=nextqa \
+python main_egoschema.py --checkpoint_dir=egoschema \
 	--feature_dir='../mist/mist_data/feats/'  \
-	--dataset=nextqa \
+	--dataset=egoschema \
 	--mc=5 \
 	--bnum=5 \
 	--epochs=30 \
@@ -8,7 +8,7 @@ python main_nextqa.py --checkpoint_dir=nextqa \
 	--qmax_words=30 \
 	--amax_words=38 \
 	--max_feats=32 \
-	--batch_size=64 \
+	--batch_size=16 \
 	--batch_size_val=64 \
 	--num_thread_reader=8 \
 	--mlm_prob=0 \
@@ -17,7 +17,7 @@ python main_nextqa.py --checkpoint_dir=nextqa \
 	--ff_dim=1024 \
 	--dropout=0.3 \
 	--seed=400 \
-	--save_dir='./save_models/nextqa/mist_nextqa_attn/' \
-	--test 1 \
-	--use-attn 1 \
-	--pretrain_path ./save_models/nextqa/mist_nextqa_attn/best_model.pth
+	--use-gss=1 \
+	--test=1 \
+	--save_dir='./save_models/egoschema/mist_egoschema_gss/' \
+	--pretrain_path ./save_models/egoschema/mist_egoschema_gss/best_model.pth

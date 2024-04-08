@@ -20,7 +20,7 @@ python main_star.py --checkpoint_dir=star \
 	--dropout=0.3 \
 	--seed=300 \
 	--freq_display=30 \
-	--save_dir='./save_models/star/mist_star_gss/' \
+	--save_dir='./save_models/star/mist_star_upper_gss/' \
 	--test 1 \
 	--use-gss 1 \
-	--pretrain_path ./save_models/star/mist_star_gss/best_model.pth
+	--pretrain_path ./save_models/star/mist_star_upper_gss/best_model.pth

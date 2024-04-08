@@ -1,9 +1,10 @@
+mkdir -p ./save_models/nextqa/mist_nextqa_upper_gss/
 python main_nextqa.py --checkpoint_dir=nextqa \
 	--feature_dir='../mist/mist_data/feats/'  \
 	--dataset=nextqa \
 	--mc=5 \
 	--bnum=5 \
-	--epochs=30 \
+	--epochs=300 \
 	--lr=0.00004 \
 	--qmax_words=30 \
 	--amax_words=38 \
@@ -17,7 +18,5 @@ python main_nextqa.py --checkpoint_dir=nextqa \
 	--ff_dim=1024 \
 	--dropout=0.3 \
 	--seed=400 \
-	--save_dir='./save_models/nextqa/mist_nextqa_attn/' \
-	--test 1 \
-	--use-attn 1 \
-	--pretrain_path ./save_models/nextqa/mist_nextqa_attn/best_model.pth
+	--save_dir='./save_models/nextqa/mist_nextqa_upper_gss/' \
+	--upper-gss 1 

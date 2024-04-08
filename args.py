@@ -193,6 +193,10 @@ def get_args():
         "--use-conv", type=int, default=0
     )
 
+    parser.add_argument(
+        "--upper-gss", type=int, default=0
+    )
+
     args = parser.parse_args()
 
     os.environ["TRANSFORMERS_CACHE"] = args.bert_path

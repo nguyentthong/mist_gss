@@ -506,8 +506,28 @@ class Selector(nn.Module):
         return selected_segs
 
 
+class GatedSSM(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.n_layers = 2
+        layer = GSS(
+            dim=config.hidden_size,
+            dim_expansion_factor=4,
+            dss_kernel_N=512,
+            dss_kernel_H=256
+        )
+        self.layer = nn.ModuleList(
+            [copy.deepcopy(layer) for _ in range(self.n_layers)]
+        )
+
+    def forward(self, x):
+        for layer in self.layer:
+            x = layer(x)
+        return x
+    
+
 class ISTA(nn.Module):
-    def __init__(self, feature_dim, word_dim, Q, N, d_model, dropout, d_ff, h):
+    def __init__(self, feature_dim, word_dim, Q, N, d_model, dropout, d_ff, h, upper_gss=0):
         super(ISTA, self).__init__()
         self.topk = 1
         self.numc = 2
@@ -524,7 +544,11 @@ class ISTA(nn.Module):
             attention_dropout=dropout,
             n_heads=h,
         )
-        self.mmt = Transformer(self.config)
+        self.upper_gss = upper_gss
+        if upper_gss:
+            self.mmt = GatedSSM(self.config)
+        else:
+            self.mmt = Transformer(self.config)
         self.seg_selector = Selector(topk=2)
 
         # segment embedding
@@ -603,7 +627,10 @@ class ISTA(nn.Module):
         language_len = question_proj.shape[1]
         vq_cat = self.position(vq_cat, vision_len=vision_len, language_len=language_len)
 
-        attended_vq, _ = self.mmt(x=vq_cat, attn_mask=mask, output_attentions=True)
+        if self.upper_gss:
+            attended_vq = self.mmt(x=vq_cat)
+        else:
+            attended_vq, _ = self.mmt(x=vq_cat, attn_mask=mask, output_attentions=True)
 
         out_q_feat = attended_vq[:, :q_len]
         out_seg_feat = attended_vq[:, q_len:q_len+seg_len]
@@ -629,7 +656,8 @@ class MMT_VideoQA(nn.Module):
         probe=False,
         use_gss=0,
         use_attn=0,
-        use_conv=0
+        use_conv=0,
+        upper_gss=0
     ):
         """
         :param feature_dim: dimension of the input video features
@@ -665,8 +693,9 @@ class MMT_VideoQA(nn.Module):
 
         # video and question fusion modules
         self.use_gss = use_gss
+        self.upper_gss = upper_gss
         self.ISTA = [ISTA(feature_dim=feature_dim, word_dim=word_dim, Q=Q, N=N,
-                          d_model=d_model, dropout=dropout, d_ff=d_ff, h=h)]
+                          d_model=d_model, dropout=dropout, d_ff=d_ff, h=h, upper_gss=self.upper_gss)]
         # for _ in range(1):
         #     self.ISTA.append(
         #         ISTA(feature_dim=d_model, word_dim=d_model, Q=Q, N=N,

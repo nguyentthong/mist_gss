@@ -17,7 +17,7 @@ python main_nextqa.py --checkpoint_dir=nextqa \
 	--ff_dim=1024 \
 	--dropout=0.3 \
 	--seed=400 \
-	--save_dir='./save_models/nextqa/mist_nextqa_attn/' \
+	--save_dir='./save_models/nextqa/mist_nextqa_upper_gss/' \
 	--test 1 \
-	--use-attn 1 \
-	--pretrain_path ./save_models/nextqa/mist_nextqa_attn/best_model.pth
+	--use-gss 1 \
+	--pretrain_path ./save_models/nextqa/mist_nextqa_upper_gss/best_model.pth

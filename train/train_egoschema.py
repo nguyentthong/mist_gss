@@ -7,8 +7,7 @@ from util import compute_aggreeings, AverageMeter, get_mask, mask_tokens
 import os.path as osp
 import json
 import clip
-from tqdm import tqdm
-from thop import profile
+from tqdm import trange, tqdm
 
 def eval(model, data_loader, a2v, args, test=False):
     model.eval()
@@ -19,15 +18,15 @@ def eval(model, data_loader, a2v, args, test=False):
         if not args.mc:
             model.module._compute_answer_embedding(a2v)
         results = {}
-        for i, batch in enumerate(tqdm(data_loader)):
+        for i, batch in enumerate(data_loader):
             answer_id, answer, video, question, question_clip = (
                 batch["answer_id"],
                 batch["answer"],
-                batch["video"].cuda(),
+                (batch["video"][0].cuda(), batch["video"][1].cuda()),
                 batch["question"].cuda(),
                 batch['question_clip'].cuda()
             )
-            video_f = video
+            video_o, video_f = video
             video_len = batch["video_len"]
             seq_len = batch["seq_len"]
             question_mask = (question > 0).float()
@@ -35,6 +34,7 @@ def eval(model, data_loader, a2v, args, test=False):
             video_mask = get_mask(video_len, video_f.size(1)).cuda()
             count += answer_id.size(0)
             question_id = batch['question_id']
+            # video = (video_o, video_f)
             if not args.mc:
                 predicts = model(
                     video,
@@ -107,20 +107,31 @@ def train(model, train_loader, a2v, optimizer, criterion, scheduler, epoch, args
                 from IPython.core.debugger import Pdb
                 dbg = Pdb()
                 dbg.set_trace()
+                
+
+    error_index_list = []
+    for i in trange(len(train_loader.dataset)):
+        try:
+            tmp = train_loader.dataset[i]
+        except:
+            error_index_list.append(i)
     
+    for index in error_index_list:
+        tmp = train_loader.dataset[index]
+
     convert_models_to_fp32(model.clip)
     for i, batch in enumerate(tqdm(train_loader)):
         answer_id, answer, video, question, question_clip = (
             batch["answer_id"],
             batch["answer"],
-            batch["video"].cuda(),
+            (batch["video"][0].cuda(), batch["video"][1].cuda()),
             batch["question"].cuda(),
             batch['question_clip'].cuda()
         )
         video_len = batch["video_len"]
         question_mask = (question > 0).float()
         answer_mask = (answer>0).float()
-        video_f = video
+        video_o, video_f = video
         video_mask = (
             get_mask(video_len, video_f.size(1)).cuda() if args.max_feats > 0 else None
         )
@@ -128,9 +139,6 @@ def train(model, train_loader, a2v, optimizer, criterion, scheduler, epoch, args
         # video = (video_o, video_f)
         N = answer_id.size(0)
         seq_len = batch["seq_len"]
-
-        # macs, params = profile(model, inputs=(video, question, question_clip, answer_id.cuda(), answer.cuda(), seq_len, video_mask, question_mask,))
-        # print("Number of FLOPs: {}".format(macs * 0.5 / 10**9))
 
         if not args.mc:
             model.module._compute_answer_embedding(a2v)
@@ -146,13 +154,12 @@ def train(model, train_loader, a2v, optimizer, criterion, scheduler, epoch, args
             fusion_proj, answer_proj = model(
                 video,
                 question,
-                question_clip=question_clip,
+                question_clip= question_clip,
                 text_mask=question_mask,
                 # text_mask=answer_mask,
                 video_mask=video_mask,
                 answer=answer.cuda(),
                 seq_len = seq_len,
-                labels=answer_id.cuda()
             )
 
             fusion_proj = fusion_proj.unsqueeze(2)
@@ -208,7 +215,7 @@ def train(model, train_loader, a2v, optimizer, criterion, scheduler, epoch, args
 
         if args.clip:
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.clip)
-        
+        # convert_models_to_fp32(model.clip)
         optimizer.step()
         # clip.model.convert_weights(model.clip)
         scheduler.step()

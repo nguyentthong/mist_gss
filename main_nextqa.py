@@ -61,6 +61,7 @@ def main(args):
         use_gss=args.use_gss,
         use_attn=args.use_attn,
         use_conv=args.use_conv,
+        upper_gss=args.upper_gss
     )
     model.cuda()
     # from IPython.core.debugger import Pdb
